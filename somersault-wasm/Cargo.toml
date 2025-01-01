@@ -1,0 +1,17 @@
+[package]
+name = "somersault-wasm"
+version = "0.2.34"
+edition = "2021"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+somersault-core = { path = "../somersault-core", version = "*" }
+somersault-sbl = { path = "../somersault-sbl", version = "*" }
+somersault-vm = { path = "../somersault-vm", version = "*" }
+wasm-bindgen = "0.2.93"
+anyhow = "1.0.86"

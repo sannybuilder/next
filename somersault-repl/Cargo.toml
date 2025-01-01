@@ -1,0 +1,8 @@
+[package]
+name = "somersault-repl"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+somersault-core = { path = "../somersault-core", version = "*" }
+somersault-vm = { path = "../somersault-vm", version = "*" }

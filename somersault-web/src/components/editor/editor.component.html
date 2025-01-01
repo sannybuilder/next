@@ -1,0 +1,46 @@
+<div #editor></div>
+
+<div class="pl-4 absolute bottom-3" style="width: 767px">
+  <ul class="flex flex-row">
+    <li class="pl-4">
+      Line: {{ cursorPosition().line }}, Col: {{ cursorPosition().ch + 1 }}
+    </li>
+    <li class="pl-4 text-slate-400">SBL v{{ sblVersion() }}</li>
+    <li class="px-4 text-slate-400">ssc v{{ sscVersion() }}</li>
+    <li class="px-4 text-slate-400">
+      <select
+        (change)="onThemeChange($event)"
+        [value]="currentTheme()"
+        class="bgcolor border border-white text-white text-xs rounded-md px-2"
+      >
+        <option>abcdef</option>
+        <option>abyss</option>
+        <option>androidstudio</option>
+        <option>andromeda</option>
+        <option>atomone</option>
+        <option>aura</option>
+        <option>basic</option>
+        <option>bbedit</option>
+        <option>bespin</option>
+        <option>console</option>
+        <option>copilot</option>
+        <option>darcula</option>
+        <option>dracula</option>
+        <option>duotone</option>
+        <option>eclipse</option>
+        <option>github</option>
+        <option>kimbie</option>
+        <option>material</option>
+        <option>monokai</option>
+        <option>nord</option>
+        <option>okaidia</option>
+        <option>quietlight</option>
+        <option>red</option>
+        <option>solarized</option>
+        <option>sublime</option>
+        <option>vscode</option>
+        <option>xcode</option>
+      </select>
+    </li>
+  </ul>
+</div>

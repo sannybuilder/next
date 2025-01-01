@@ -1,0 +1,34 @@
+<div class="flex flex-col space-between border border-blue-950">
+  <div class="flex flex-row justify-between p-4">
+    <div class="w-full text-center" style="width: calc(100% - 100px); padding-left: 30px;">
+      <input
+        class="bg-transparent w-full border-none focus:outline-none text-xl hover:outline-dotted outline-sky-400 outline-1 text-center truncate"
+        [(ngModel)]="title"
+        title="Click to edit"
+        type="text"
+
+      />
+    </div>
+
+    <div class="flex flex-col items-center">
+      @if(isAuthenticated()) {
+      <button
+        class="font-small border border-white hover:border-sky-300 rounded-md px-3 py-1 hover:text-sky-300 disabled:opacity-50 disabled:border-white disabled:text-white"
+        (click)="save()"
+        [disabled]="!isAuthenticated() || saveStatus() === 1 || content() === ''"
+      >
+        @switch(saveStatus()) { @case(0) { Save } @case(1) { Saving... } }
+      </button>
+      } @else {
+      <span class="text-xs text-gray-400">Guests can not share the code.</span>
+      }
+    </div>
+  </div>
+  <div class="text-red-500 text-right text-xs p-2" *ngIf="error() as error">{{ error }}</div>
+</div>
+
+<div class="text-right p-2 text-slate-400" *ngIf="modified() as modified">
+  last saved at {{ modified | date : "short" }}
+</div>
+
+<app-editor />

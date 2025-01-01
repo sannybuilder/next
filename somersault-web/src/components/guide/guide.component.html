@@ -1,0 +1,59 @@
+<div class="flex flex-row">
+  <div
+    style="border-bottom: none; width: 200px"
+    class="shrink-0 bgcolor border border-blue-950 text-white transition-all duration-300 truncate"
+    [ngClass]="{ hidden: sidebarCollapsed() }"
+  >
+    <h3 class="text-lg text-center p-3">Content</h3>
+
+    <!-- Sidebar content -->
+    <ul class="mt-4">
+      <li *ngFor="let page of pages" class="px-3 py-1">
+        <a [routerLink]="['/guide', page.slug]" class="hover:text-sky-400">{{
+          page.title
+        }}</a>
+      </li>
+    </ul>
+  </div>
+
+  <div class="w-full">
+    <div class="flex flex-row space-between p-4 border border-blue-950">
+      <button
+        (click)="sidebarCollapsed.set(!sidebarCollapsed())"
+        title="Toggle Sidebar"
+        class="border border-white hover:border-sky-300 rounded-md px-3 py-1 hover:text-sky-300 mr-2"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          fill="currentColor"
+          class="bi bi-layout-sidebar"
+          viewBox="0 0 16 16"
+        >
+          <path
+            d="M0 3a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm5-1v12h9a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1zM4 2H2a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h2z"
+          />
+        </svg>
+      </button>
+      <a
+        class="font-small border border-white hover:border-sky-300 rounded-md px-3 py-1 hover:text-sky-300"
+        *ngIf="isValidPage(currentPage() - 1)"
+        [routerLink]="['..', pages[currentPage() - 1].slug]"
+        [title]="pages[currentPage() - 1].title"
+        >← <span class="hidden md:inline">Back</span></a
+      >
+
+      <h2 class="text-xl text-center grow truncate px-2" [title]="title()">{{ title() }}</h2>
+      <a
+        class="font-small border border-white hover:border-sky-300 rounded-md px-3 py-1 hover:text-sky-300"
+        *ngIf="isValidPage(currentPage() + 1)"
+        [routerLink]="['..', pages[currentPage() + 1].slug]"
+        [title]="pages[currentPage() + 1].title"
+        ><span class="hidden md:inline">Next</span> →</a
+      >
+    </div>
+
+    <app-editor />
+  </div>
+</div>

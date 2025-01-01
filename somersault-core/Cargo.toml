@@ -1,0 +1,12 @@
+[package]
+name = "somersault-core"
+version = "0.2.34"
+edition = "2021"
+
+[dependencies]
+somersault-sbl = { path = "../somersault-sbl", version = "*" }
+anyhow = "1.0.86"
+libc = "0.2.79"
+pretty_assertions = "1.4.1"
+
+[dev.dependencies]

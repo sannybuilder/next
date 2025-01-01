@@ -1,0 +1,11 @@
+int d[2] = get_time_of_day()
+
+print_help(d[0])
+print_help(d[1])
+
+
+float pos[3] = get_car_coordinates(0)
+
+print_help(int(pos[0]))
+print_help(int(pos[2]))
+print_help(int(pos[3]))

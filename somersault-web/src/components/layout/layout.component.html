@@ -1,0 +1,276 @@
+<div class="flex flex-col" style="height: 100vh">
+  <div>
+    <ul class="nav flex flex-row items-center">
+      <li>
+        <a href="/" class="flex flex-row items-center select-none">
+          <img src="s-logo.png" width="32" height="32" />
+          <span class="pl-2 text-sky-400">Somersault</span>
+        </a>
+      </li>
+
+      <li>
+        @if (isAuthenticated()) {
+
+        <div class="relative">
+          <input type="checkbox" id="sortbox" class="hidden absolute" />
+          <label
+            for="sortbox"
+            class="flex items-center space-x-1 cursor-pointer"
+          >
+            <img
+              [src]="user()?.avatar_url"
+              width="16"
+              height="16"
+              class="rounded-xl"
+            />
+            <span>Welcome, {{ user()?.login }}!</span>
+            <svg
+              class="h-4 w-4"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+          </label>
+
+          <div
+            id="sortboxmenu"
+            class="absolute mt-1 right-1 top-full min-w-max shadow hidden border border-sky-400 z-10"
+          >
+            <ul class="block hover:text-white">
+              <li>
+                <a
+                  [href]="user()?.html_url"
+                  target="_blank"
+                  class="block px-3 py-2 hover:text-sky-400"
+                  >Profile</a
+                >
+              </li>
+              <li>
+                <button
+                  (click)="logout()"
+                  class="block px-3 py-2 hover:text-sky-400"
+                >
+                  Logout
+                </button>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        } @else {
+        <a
+          (click)="login()"
+          class="text-sky-400 hover:text-sky-300 cursor-pointer"
+          >Login</a
+        >
+        }
+      </li>
+
+      <li>
+        <a routerLink="/guide" class="text-sky-400 hover:text-sky-300">Guide</a>
+      </li>
+
+      <li>
+        <a routerLink="/code" class="text-sky-400 hover:text-sky-300"
+          >Playground</a
+        >
+      </li>
+
+      <li class="grow"></li>
+      <li>
+        <a
+          href="https://sannybuilder.com"
+          target="_blank"
+          class="text-sky-400 hover:text-sky-300"
+          >Sanny Builder</a
+        >
+      </li>
+
+      <li>
+        <a
+          href="https://library.sannybuilder.com"
+          target="_blank"
+          class="text-sky-400 hover:text-sky-300"
+          >Library</a
+        >
+      </li>
+
+      <li>
+        <a
+          href="https://cleo.li"
+          target="_blank"
+          class="text-sky-400 hover:text-sky-300"
+          >CLEO 5</a
+        >
+      </li>
+
+      <li>
+        <a
+          href="https://sannybuilder.com/discord"
+          target="_blank"
+          class="text-sky-400 hover:text-sky-300"
+          >Discord</a
+        >
+      </li>
+      <li>
+        <a
+          href="https://patreon.com/seemann"
+          target="_blank"
+          class="text-sky-400 hover:text-sky-300"
+          >Patreon</a
+        >
+      </li>
+    </ul>
+  </div>
+
+  <div class="flex flex-row" style="height: calc(100% - 48px)">
+    <div class="w-full" style="min-width: calc(50vw + 200px)">
+      <router-outlet />
+    </div>
+
+    <div class="flex flex-col w-full" style="min-width: 500px">
+      <div class="h-3/4 border border-blue-950">
+        <div class="tabs">
+          <div class="flex flex-row border-b border-blue-950 pr-4">
+            <div class="tab-list grow">
+              <div
+                class="tab p-4 hover:text-sky-400"
+                [ngClass]="{ active: currentTab() == 0 }"
+                (click)="currentTab.set(0)"
+              >
+                Transpiled
+              </div>
+              <div
+                class="tab hover:text-sky-400"
+                [ngClass]="{ active: currentTab() == 1 }"
+                (click)="currentTab.set(1)"
+              >
+                Compiled
+              </div>
+              <!-- <div
+                class="tab hover:text-sky-400"
+                [ngClass]="{ active: currentTab() == 2 }"
+                (click)="currentTab.set(2)"
+              >
+                SBL
+              </div> -->
+            </div>
+
+            <div class="content-center">
+              <button
+                title="Copy to clipboard"
+                (click)="copy()"
+                class="font-small border border-white hover:border-sky-300 rounded-md px-3 py-1 hover:text-sky-300"
+              >
+                <div class="flex flex-row items-center">
+                  <svg
+                    *ngIf="copyStatus == 0"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    fill="currentColor"
+                    class="bi bi-clipboard"
+                    viewBox="0 0 16 16"
+                  >
+                    <path
+                      d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1z"
+                    />
+                    <path
+                      d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0z"
+                    />
+                  </svg>
+
+                  <svg
+                    *ngIf="copyStatus == 1"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    fill="currentColor"
+                    class="bi bi-clipboard-check-fill"
+                    viewBox="0 0 16 16"
+                  >
+                    <path
+                      d="M6.5 0A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0zm3 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5z"
+                    />
+                    <path
+                      d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1A2.5 2.5 0 0 1 9.5 5h-3A2.5 2.5 0 0 1 4 2.5zm6.854 7.354-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 0 1 .708-.708L7.5 10.793l2.646-2.647a.5.5 0 0 1 .708.708"
+                    />
+                  </svg>
+                  <span class="pl-2 hidden xl:inline">Copy</span>
+                </div>
+              </button>
+              @if (supportsFs()) {
+
+              <button
+                title="Save to File"
+                (click)="saveToFile()"
+                class="font-small border border-white hover:border-sky-300 rounded-md px-3 py-1 hover:text-sky-300"
+              >
+                <div class="flex flex-row items-center">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    fill="currentColor"
+                    class="bi bi-floppy"
+                    viewBox="0 0 16 16"
+                  >
+                    <path d="M11 2H9v3h2z" />
+                    <path
+                      d="M1.5 0h11.586a1.5 1.5 0 0 1 1.06.44l1.415 1.414A1.5 1.5 0 0 1 16 2.914V14.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 14.5v-13A1.5 1.5 0 0 1 1.5 0M1 1.5v13a.5.5 0 0 0 .5.5H2v-4.5A1.5 1.5 0 0 1 3.5 9h9a1.5 1.5 0 0 1 1.5 1.5V15h.5a.5.5 0 0 0 .5-.5V2.914a.5.5 0 0 0-.146-.353l-1.415-1.415A.5.5 0 0 0 13.086 1H13v4.5A1.5 1.5 0 0 1 11.5 7h-7A1.5 1.5 0 0 1 3 5.5V1H1.5a.5.5 0 0 0-.5.5m3 4a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5V1H4zM3 15h10v-4.5a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5z"
+                    />
+                  </svg>
+                  <span class="pl-2 hidden xl:inline">
+                    @switch(saveStatus) { @case(0) { Save To File } @case(1) {
+                    Saving... } @case(2) { Saved! } }
+                  </span>
+                </div>
+              </button>
+              } @else {
+              <button
+                title="Download file"
+                (click)="download()"
+                class="font-small border border-white hover:border-sky-300 rounded-md px-3 py-1 hover:text-sky-300"
+              >
+                <div class="flex flex-row items-center">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    fill="currentColor"
+                    class="bi bi-file-earmark-arrow-down-fill"
+                    viewBox="0 0 16 16"
+                  >
+                    <path
+                      d="M9.293 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.707A1 1 0 0 0 13.707 4L10 .293A1 1 0 0 0 9.293 0M9.5 3.5v-2l3 3h-2a1 1 0 0 1-1-1m-1 4v3.793l1.146-1.147a.5.5 0 0 1 .708.708l-2 2a.5.5 0 0 1-.708 0l-2-2a.5.5 0 0 1 .708-.708L7.5 11.293V7.5a.5.5 0 0 1 1 0"
+                    />
+                  </svg>
+                  <span class="pl-2 hidden xl:inline">Download</span>
+                </div>
+              </button>
+              }
+            </div>
+          </div>
+
+          <div class="tab-content h-full overflow-auto">
+            @switch(currentTab()) { @case(0) { <app-transpiled-code /> }
+            @case(1) { <app-hex-code /> }
+            <!-- @case(2) { <iframe class="w-full h-full" [src]="sblUrl()"></iframe> } -->
+            }
+          </div>
+        </div>
+      </div>
+      <div class="h-1/4 border border-blue-950 p-4" style="border-bottom: none">
+        <app-terminal />
+      </div>
+    </div>
+  </div>
+</div>

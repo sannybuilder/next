@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+    "somersault-cli",
+    "somersault-core",
+    "somersault-repl",
+    "somersault-vm",
+    "somersault-wasm",
+    "somersault-sbl",
+]

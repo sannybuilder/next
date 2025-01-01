@@ -1,0 +1,8 @@
+[package]
+name = "ssc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+somersault-core = { path = "../somersault-core", version = "*" }
+anyhow = "1.0.86"
