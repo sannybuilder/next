@@ -90,6 +90,7 @@ pub fn compile(program: AstNodeSpan) -> Result<Vec<Instruction>> {
     let mut instructions = vec![];
 
     scopes.enter(ScopeType::Root, 0);
+    scopes.get_current_scope().inc_stack_index();
     visit_stmt(
         &program,
         &mut |inst| {
@@ -97,8 +98,6 @@ pub fn compile(program: AstNodeSpan) -> Result<Vec<Instruction>> {
         },
         &mut scopes,
     )?;
-    scopes.exit();
-    ensure!(scopes.is_empty(), "Unclosed scope. Missing 'end'.");
 
     fn prepend_vec(vec: &mut Vec<Instruction>, mut prepend: Vec<Instruction>) {
         for inst in prepend.drain(..).rev() {
@@ -181,44 +180,14 @@ pub fn compile(program: AstNodeSpan) -> Result<Vec<Instruction>> {
     }
 
     if scopes.get_heap_size() > 0 {
-        prepend_vec(
-            &mut instructions,
-            vec![
-                Instruction::OpcodeInst(OpcodeInst {
-                    id: OP_ALLOCATE_MEMORY,
-                    args: vec![
-                        OpcodeArgument::INT(scopes.get_heap_size() as _),
-                        OpcodeArgument::LVAR(0, ArgType::Int),
-                    ],
-                    is_variadic: false,
-                }),
-                Instruction::OpcodeInst(OpcodeInst {
-                    id: OP_GET_VAR_POINTER,
-                    args: vec![
-                        OpcodeArgument::GVAR(0, ArgType::Int),
-                        OpcodeArgument::LVAR(33, ArgType::Int),
-                    ],
-                    is_variadic: false,
-                }),
-                Instruction::OpcodeInst(OpcodeInst {
-                    id: 0x0062,
-                    args: vec![
-                        OpcodeArgument::LVAR(0, ArgType::Int),
-                        OpcodeArgument::LVAR(33, ArgType::Int),
-                    ],
-                    is_variadic: false,
-                }),
-                Instruction::OpcodeInst(OpcodeInst {
-                    id: 0x0016,
-                    args: vec![
-                        OpcodeArgument::LVAR(0, ArgType::Int),
-                        OpcodeArgument::INT(4),
-                    ],
-                    is_variadic: false,
-                }),
-            ],
-        );
+        prepend_vec(&mut instructions, heap_allocate_instruct(&mut scopes));
+        instructions.push(Instruction::Label(scopes.buf_label()));
+        let buf = std::iter::repeat(0).take(scopes.get_heap_size()).collect();
+        instructions.push(Instruction::RawBytes(buf));
     }
+
+    scopes.exit();
+    ensure!(scopes.is_empty(), "Unclosed scope. Missing 'end'.");
 
     return Ok(instructions);
 }
@@ -771,6 +740,39 @@ where
     Ok(())
 }
 
+fn visit_export_function(
+    inner_node: &crate::parser::NodeFuncDeclStml,
+    scopes: &mut Scopes,
+) -> Result<Vec<Instruction>> {
+    let mut cache = vec![];
+    let scope = create_scope(&inner_node.body, scopes)?;
+
+    for stmt in scope {
+        visit_stmt(
+            &stmt,
+            &mut |inst| {
+                cache.push(inst);
+            },
+            scopes,
+        )?;
+    }
+
+    let scope = scopes.get_current_scope();
+    if scope.uses_heap() {
+        // because exported functions don't have a heap pointer given by callee, they have to calculate it themselves
+        let header = heap_allocate_instruct(scopes);
+        cache.insert(
+            0,
+            Instruction::Label(format!("$internal.{}.inner", inner_node.name)),
+        );
+        for inst in header.into_iter().rev() {
+            cache.insert(0, inst);
+        }
+    }
+
+    Ok(cache)
+}
+
 fn visit_stmt<Emitter>(
     this_node: &AstNodeSpan,
     emit: &mut Emitter,
@@ -789,14 +791,10 @@ where
         AstNode::NodeFuncDeclStml(inner_node) => {
             emit(Instruction::Label(inner_node.name.clone()));
 
-            let ty = if inner_node.is_exported {
-                ScopeType::ExportedFunction
-            } else {
-                ScopeType::InternalFunction
-            };
-            scopes.enter(ty(inner_node.name.clone()), this_node.line);
-
-            let scope = create_scope(&inner_node.body, scopes)?;
+            scopes.enter(
+                ScopeType::InternalFunction(inner_node.name.clone()),
+                this_node.line,
+            );
 
             // register function arguments in current scope
             for (arg_name, arg_ty) in inner_node.args.iter() {
@@ -843,8 +841,22 @@ where
                 }
             }
 
-            for stmt in scope {
-                visit_stmt(&stmt, emit, scopes)?;
+            scopes.get_current_scope().inc_stack_index(); // reserve slot for heap pointer
+
+            if inner_node.is_exported {
+                let instructions = visit_export_function(inner_node, scopes)?;
+                for inst in instructions {
+                    emit(inst);
+                }
+            } else {
+                let scope = create_scope(&inner_node.body, scopes)?;
+                emit(Instruction::Label(format!(
+                    "$internal.{}.inner",
+                    inner_node.name.clone()
+                )));
+                for stmt in scope {
+                    visit_stmt(&stmt, emit, scopes)?;
+                }
             }
 
             scopes.exit();
@@ -988,7 +1000,7 @@ where
             let mut args = vec![];
 
             let name = match scopes.get_current_scope().get_type() {
-                ScopeType::InternalFunction(name) | ScopeType::ExportedFunction(name) => name,
+                ScopeType::InternalFunction(name) => name,
                 _ => {
                     bail!("Unexpected scope at line {}", this_node.line);
                 }
@@ -1361,6 +1373,23 @@ where
         args.push(arg.clone());
     }
 
+    if sig.op == OP_CLEO_CALL {
+        // function name is the label
+
+        // optimization: skip heap setup if function has it, because we pass heap pointer explicitly
+        let offset = OpcodeArgument::LABEL(format!("$internal.{}.inner", inner_node.name));
+        //pass heap pointer from parent scope as last argument
+        args.push(OpcodeArgument::LVAR(
+            scopes.get_current_scope().get_stack_index() - 1,
+            ArgType::Int,
+        ));
+
+        args.insert(0, (sig.input_count + 1).into());
+
+        args.insert(0, offset);
+        sig.is_variadic = true;
+    }
+
     for i in 0..sig.output_count {
         let target = allocate(this_node, sig.output[i], emit, scopes)?;
         exprs.push((target.clone(), sig.output[i]));
@@ -1370,18 +1399,6 @@ where
         } else {
             args.push(target);
         }
-    }
-
-    if sig.op == OP_CLEO_CALL {
-        // function name is the label
-        let offset = OpcodeArgument::LABEL(inner_node.name.to_string());
-
-        //pass 0@ from parent scope which contains a pointer to allocated heap
-        args.insert(0, OpcodeArgument::LVAR(0, ArgType::Int));
-        args.insert(0, (sig.input_count + 1).into());
-
-        args.insert(0, offset);
-        sig.is_variadic = true;
     }
 
     emit(Instruction::OpcodeInst(OpcodeInst {
@@ -1442,7 +1459,7 @@ where
             ]);
         }
         _ => {
-            unreachable!()
+            unreachable!("no other pointer types")
         }
     }
 }
@@ -1524,7 +1541,10 @@ where
             match array.var_type {
                 VarType::HeapAllocated => OpcodeArgument::ARRAY(Box::new((
                     OpcodeArgument::GVAR(array.index + i as usize * unit_size, array.ty),
-                    OpcodeArgument::LVAR(0, ArgType::Int),
+                    OpcodeArgument::LVAR(
+                        scopes.get_current_scope().get_stack_index() - 1,
+                        ArgType::Int,
+                    ),
                     1,
                 ))),
                 VarType::Local => {
@@ -1545,7 +1565,10 @@ where
                         id: get_assignment_opcode_binary(&ty, &Token::Add)
                             .map_err(|e| anyhow!("{e} at line {}", inner_node.name.line))?,
                         args: vec![
-                            OpcodeArgument::LVAR(0, ty), // heap pointer
+                            OpcodeArgument::LVAR(
+                                scopes.get_current_scope().get_stack_index() - 1,
+                                ty,
+                            ), // heap pointer
                             index_arg.clone(),
                             temp_index_var.clone(),
                         ],
@@ -1812,14 +1835,15 @@ fn node_to_argument(node: &AstNodeSpan, scopes: &mut Scopes) -> Result<OpcodeArg
         AstNode::NodeFloatLiteral(f) => OpcodeArgument::FLOAT(*f),
         AstNode::NodeStringLiteral(s) => OpcodeArgument::STR(s.clone()),
         AstNode::NodeIdentifier(name) => {
-            if let Some(v) = scopes.get_current_scope().find_constant(name) {
+            let scope = scopes.get_current_scope();
+            if let Some(v) = scope.find_constant(name) {
                 return Ok(v.clone());
             }
-            if let Some(v) = scopes.get_current_scope().find_var(name) {
+            if let Some(v) = scope.find_var(name) {
                 match v.var_type {
                     VarType::HeapAllocated => OpcodeArgument::ARRAY(Box::new((
                         OpcodeArgument::GVAR(v.index, v.ty),
-                        OpcodeArgument::LVAR(0, ArgType::Int),
+                        OpcodeArgument::LVAR(scope.get_stack_index() - 1, ArgType::Int),
                         1,
                     ))),
                     VarType::Local => OpcodeArgument::LVAR(v.index, v.ty),
@@ -1852,7 +1876,7 @@ fn default_allocator<Emitter>(
 fn deallocate_temp_var(arg: &OpcodeArgument, scopes: &mut Scopes) -> Result<()> {
     match arg {
         OpcodeArgument::ARRAY(v) => match (&v.0, &v.1) {
-            (OpcodeArgument::GVAR(_gindex, _), OpcodeArgument::LVAR(lindex, _)) if *lindex > 0 => {
+            (OpcodeArgument::GVAR(_gindex, _), OpcodeArgument::LVAR(lindex, _)) => {
                 scopes.deallocate_local_var(*lindex)?;
             }
             _ => {}
@@ -1873,4 +1897,43 @@ fn match_types(ty1: ArgType, ty2: ArgType) -> bool {
         (ArgType::PInt32, ArgType::Int) => true,
         _ => false,
     }
+}
+
+fn heap_allocate_instruct(scopes: &mut Scopes) -> Vec<Instruction> {
+    let stack_index = scopes.get_current_scope().get_stack_index() - 1;
+    let buf_label = scopes.buf_label();
+    vec![
+        Instruction::OpcodeInst(OpcodeInst {
+            id: OP_GET_LABEL_POINTER,
+            args: vec![
+                OpcodeArgument::LABEL(buf_label.clone()),
+                OpcodeArgument::LVAR(stack_index, ArgType::Int),
+            ],
+            is_variadic: false,
+        }),
+        Instruction::OpcodeInst(OpcodeInst {
+            id: OP_GET_VAR_POINTER,
+            args: vec![
+                OpcodeArgument::GVAR(0, ArgType::Int),
+                OpcodeArgument::LVAR(33, ArgType::Int),
+            ],
+            is_variadic: false,
+        }),
+        Instruction::OpcodeInst(OpcodeInst {
+            id: 0x0062,
+            args: vec![
+                OpcodeArgument::LVAR(stack_index, ArgType::Int),
+                OpcodeArgument::LVAR(33, ArgType::Int),
+            ],
+            is_variadic: false,
+        }),
+        Instruction::OpcodeInst(OpcodeInst {
+            id: 0x0016,
+            args: vec![
+                OpcodeArgument::LVAR(stack_index, ArgType::Int),
+                OpcodeArgument::INT(4),
+            ],
+            is_variadic: false,
+        }),
+    ]
 }

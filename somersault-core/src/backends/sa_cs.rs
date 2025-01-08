@@ -48,7 +48,7 @@ impl<'a> Into<Vec<u8>> for &OpcodeArgument {
                 .chain(v.to_le_bytes())
                 .collect(),
             OpcodeArgument::LABEL(_) => {
-                unreachable!()
+                unreachable!("labels should be converted to int");
             }
             OpcodeArgument::STR(vec) => std::iter::once(DataType::STR16 as u8)
                 .chain(std::iter::once(vec.len() as u8))
@@ -61,7 +61,7 @@ impl<'a> Into<Vec<u8>> for &OpcodeArgument {
                     OpcodeArgument::GVAR(index, ty) => (DataType::GVARARRAY, index as i16 * 4, ty),
                     OpcodeArgument::LVAR(index, ty) => (DataType::LVARARRAY, index as i16, ty),
                     _ => {
-                        unreachable!()
+                        unreachable!("only variables can be name of the array")
                     }
                 };
                 let ty = match ty {
@@ -73,7 +73,7 @@ impl<'a> Into<Vec<u8>> for &OpcodeArgument {
                     OpcodeArgument::GVAR(index, _) => (0x80, index as i16 * 4),
                     OpcodeArgument::LVAR(index, _) => (0, index as i16),
                     _ => {
-                        unreachable!()
+                        unreachable!("only variables can be name of the array")
                     }
                 };
 

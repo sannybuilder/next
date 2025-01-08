@@ -7,7 +7,6 @@ use std::collections::HashMap;
 pub enum ScopeType {
     Root,
     InternalFunction(String),
-    ExportedFunction(String), // exported functions don't have heap allocated variables
     // Mission,
 }
 
@@ -31,6 +30,7 @@ pub struct Scope {
     stack_index: usize,
     loops: Vec<(String, String)>,
     line: usize,
+    uses_heap: bool,
 }
 
 #[derive(Clone)]
@@ -107,10 +107,11 @@ impl Scope {
             variables,
             constants,
             functions: HashMap::new(),
-            stack_index: 1, //0@ is reserved for the varspace pointer
+            stack_index: 0,
             free_local_variables: [true; MAX_LVARS],
             loops: Vec::new(),
             line,
+            uses_heap: false,
         }
     }
 
@@ -121,8 +122,20 @@ impl Scope {
     pub fn is_function_scope(&self) -> bool {
         matches!(
             self.ty,
-            ScopeType::InternalFunction(_) | ScopeType::ExportedFunction(_)
+            ScopeType::InternalFunction(_)
         )
+    }
+
+    pub fn uses_heap(&self) -> bool {
+        self.uses_heap
+    }
+
+    pub fn get_stack_index(&self) -> usize {
+        self.stack_index
+    }
+
+    pub fn inc_stack_index(&mut self) {
+        self.stack_index += 1;
     }
 
     pub fn get_type(&self) -> &ScopeType {
@@ -333,6 +346,10 @@ impl Scopes {
         format!("$internal.{}", self.label_counter)
     }
 
+    pub fn buf_label(&mut self) -> String {
+        format!("$internal.buf")
+    }
+
     pub fn allocate_local_var(&mut self, ty: ArgType, count: usize) -> Result<usize> {
         let scope = self.get_current_scope();
         let count = get_type_size(&ty) * count;
@@ -370,21 +387,6 @@ impl Scopes {
         Ok(())
     }
 
-    // fn allocate_stack_var(&mut self, ty: ArgType, count: usize) -> Result<usize> {
-    //     let size = get_type_size(&ty) * count;
-    //     let Some(index) = self.allocator.allocate(size) else {
-    //         bail!("Out of heap memory")
-    //     };
-    //     self.max_stack_index = self.max_stack_index.max(index + size);
-    //     Ok(index + self.initial_stack_index)
-    // }
-
-    // fn deallocate_stack_var(&mut self, index: usize) {
-    //     if index >= self.initial_stack_index {
-    //         self.allocator.deallocate(index - self.initial_stack_index)
-    //     }
-    // }
-
     pub fn register_var(&mut self, name: String, ty: ArgType, var_type: VarType) -> Result<()> {
         self.create_variable(name, ty, 1, var_type)
     }
@@ -406,24 +408,12 @@ impl Scopes {
         count: usize,
         var_type: VarType,
     ) -> Result<()> {
-        let var_type = match var_type {
-            VarType::HeapAllocated
-            // only heap allocate in functions that are not exported
-                if !matches!(
-                    self.get_current_scope().get_type(),
-                    &ScopeType::ExportedFunction(_)
-                ) =>
-            {
-                VarType::HeapAllocated
-            }
-            _ => VarType::Local,
-        };
-
         let index = match var_type {
             VarType::HeapAllocated => {
                 let index = self.current_var_index;
                 let size = get_type_size(&ty) * count;
                 self.current_var_index += size;
+                self.get_current_scope().uses_heap = true;
                 index
             }
             _ => {

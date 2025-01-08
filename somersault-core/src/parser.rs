@@ -504,7 +504,7 @@ fn parse_expr(
                                                     Token::BitAndEqual => Token::BitAnd,
                                                     Token::BitOrEqual => Token::BitOr,
                                                     Token::BitXorEqual => Token::BitXor,
-                                                    _ => unreachable!(),
+                                                    _ => unreachable!("no other compound operators"),
                                                 },
                                             })),
                                             line,

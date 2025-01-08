@@ -174,6 +174,9 @@ fn patch_exports(
             Instruction::RawBytes(bytes) => {
                 let mut offset = 0;
                 let magic = vec![0xFF, 0x7F, 0xFE, 0x00, 0x00];
+                if bytes.len() < 5 {
+                    continue;
+                }
                 let custom_header = bytes[offset..offset + 5].to_vec();
                 offset += 5;
 

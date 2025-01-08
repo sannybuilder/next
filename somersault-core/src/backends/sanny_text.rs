@@ -51,7 +51,7 @@ impl std::fmt::Display for OpcodeArgument {
                         )
                     }
                     _ => {
-                        unreachable!()
+                        unreachable!("index can only be local")
                     }
                 },
                 OpcodeArgument::LVAR(name, arg_type) => match &b.1 {
@@ -69,11 +69,11 @@ impl std::fmt::Display for OpcodeArgument {
                         )
                     }
                     _ => {
-                        unreachable!()
+                        unreachable!("index can only be local")
                     }
                 },
                 _ => {
-                    unreachable!()
+                    unreachable!("only variables can be name of the array")
                 }
             },
         }
@@ -155,13 +155,17 @@ impl Backend for SannyTextBackend {
                 }
                 Instruction::RawBytes(bytes) => {
                     self.lines.push("hex".to_string());
-                    self.lines.push(
-                        bytes
-                            .iter()
-                            .map(|x| format!("{:02X}", x))
-                            .collect::<Vec<_>>()
-                            .join(" "),
-                    );
+                    if bytes.iter().fold(0, |acc, &x| acc + x) == 0 {
+                        self.lines.push(format!("00({})", bytes.len()));
+                    } else {
+                        self.lines.push(
+                            bytes
+                                .iter()
+                                .map(|x| format!("{:02X}", x))
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                        );
+                    }
                     self.lines.push("end".to_string());
                 }
             }
