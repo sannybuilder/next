@@ -1,7 +1,8 @@
 use anyhow::{bail, Ok, Result};
 use std::collections::HashMap;
 
-use crate::compiler::{Instruction, OpcodeArgument, OpcodeInst};
+use crate::compiler::{Instruction, OpcodeInst};
+use crate::argument::OpcodeArgument;
 
 pub struct CodeGenContext {
     is_external: bool,
@@ -148,7 +149,7 @@ fn replace_labels(
     let map = resolve_labels(&instructions);
 
     visit_arg!(instructions;
-        crate::compiler::OpcodeArgument::LABEL(name) => {
+        OpcodeArgument::LABEL(name) => {
             let Some(offset) = map.get(&name) else {
                 bail!("Can't find label {name}");
             };
@@ -158,7 +159,7 @@ fn replace_labels(
             } else {
                 *offset as i32
             };
-            Ok(crate::compiler::OpcodeArgument::INT32(new_offset))
+            Ok(OpcodeArgument::INT32(new_offset))
         }
     )
 }
@@ -248,7 +249,7 @@ fn patch_exports(
 
 #[cfg(test)]
 mod suite {
-    use crate::compiler::{Instruction, OpcodeArgument, OpcodeInst};
+    use crate::{argument::OpcodeArgument, compiler::{Instruction, OpcodeInst}};
 
     #[test]
     fn test_call() {

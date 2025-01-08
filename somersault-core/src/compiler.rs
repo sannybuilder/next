@@ -1,4 +1,8 @@
 use crate::{
+    argument::{
+        get_frame_pointer_var, get_persistent_storage_var, get_storage_for_var,
+        variable_to_argument, OpcodeArgument,
+    },
     op::*,
     parser::{
         node_span_with, ArgType, AstNode, AstNodeSpan, NodeCallExpression, NodeIndexExpression,
@@ -44,32 +48,6 @@ pub struct OpcodeInst {
     pub id: u16,
     pub args: Vec<OpcodeArgument>,
     pub is_variadic: bool,
-}
-
-type TVarIndex = usize;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum OpcodeArgument {
-    INT(i32),
-    INT32(i32),
-    FLOAT(f32),
-    LABEL(String),
-    GVAR(TVarIndex, ArgType),
-    LVAR(TVarIndex, ArgType),
-    STR(Vec<u8>),
-    ARRAY(Box<(OpcodeArgument, OpcodeArgument, usize)>), // var[index]
-}
-
-impl From<i32> for OpcodeArgument {
-    fn from(value: i32) -> Self {
-        OpcodeArgument::INT(value)
-    }
-}
-
-impl From<usize> for OpcodeArgument {
-    fn from(value: usize) -> Self {
-        OpcodeArgument::INT(value as i32)
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -817,10 +795,7 @@ where
         AstNode::NodeFuncDeclStml(inner_node) => {
             emit(Instruction::Label(inner_node.name.clone()));
 
-            scopes.enter(
-                ScopeType::InternalFunction(inner_node.name.clone()),
-                this_node.line,
-            );
+            scopes.enter(ScopeType::Function(inner_node.name.clone()), this_node.line);
 
             // register function arguments in current scope
             for (arg_name, arg_ty) in inner_node.args.iter() {
@@ -1035,7 +1010,7 @@ where
             let mut args = vec![];
 
             let name = match scopes.get_current_scope().get_type() {
-                ScopeType::InternalFunction(name) => name,
+                ScopeType::Function(name) => name,
                 _ => {
                     bail!("Unexpected scope at line {}", this_node.line);
                 }
@@ -1420,8 +1395,7 @@ where
 
         if frame_size > 0 {
             let ty = ArgType::Int;
-            let temp_index = scopes.allocate_local_var(ty, 1)?;
-            let temp_index_var = OpcodeArgument::LVAR(temp_index, ty);
+            let temp_index_var = default_allocator(&this_node, ty, emit, scopes)?;
 
             // temp_index_var = fp + index
             emit(Instruction::OpcodeInst(OpcodeInst {
@@ -1445,6 +1419,11 @@ where
         sig.is_variadic = true;
     }
 
+    for arg in &args {
+        // this has to go before output allocation, or we deallocate target variable too soon
+        deallocate_temp_var(arg, scopes)?
+    }
+
     for i in 0..sig.output_count {
         let target = allocate(this_node, sig.output[i], emit, scopes)?;
         exprs.push((target.clone(), sig.output[i]));
@@ -1454,10 +1433,6 @@ where
         } else {
             args.push(target);
         }
-    }
-
-    for arg in &args {
-        deallocate_temp_var(arg, scopes)?
     }
 
     emit(Instruction::OpcodeInst(OpcodeInst {
@@ -1930,30 +1905,6 @@ fn create_scope<'a>(
     Ok(scope)
 }
 
-fn variable_to_argument(
-    var_type: crate::scope::VarType,
-    index: usize,
-    ty: ArgType,
-    scopes: &mut Scopes,
-) -> OpcodeArgument {
-    match var_type {
-        VarType::Persistent | VarType::Frame => OpcodeArgument::ARRAY(Box::new((
-            OpcodeArgument::GVAR(index, ty),
-            get_storage_for_var(var_type, scopes),
-            1,
-        ))),
-        VarType::Local => OpcodeArgument::LVAR(index, ty),
-    }
-}
-
-fn get_storage_for_var(var_type: crate::scope::VarType, scopes: &mut Scopes) -> OpcodeArgument {
-    match var_type {
-        VarType::Persistent => get_persistent_storage_var(scopes),
-        VarType::Frame => get_frame_pointer_var(scopes),
-        _ => unreachable!("no other types here"),
-    }
-}
-
 fn node_to_argument(node: &AstNodeSpan, scopes: &mut Scopes) -> Result<OpcodeArgument> {
     let argument = match &node.node {
         AstNode::NodeIntLiteral(i) => OpcodeArgument::INT(*i),
@@ -2017,18 +1968,6 @@ fn match_types(ty1: ArgType, ty2: ArgType) -> bool {
         (ArgType::PInt32, ArgType::Int) => true,
         _ => false,
     }
-}
-
-/// returns the variable that holds an offset to statically allocated memory block in the script where static variables keep their values
-/// used in array costructs like &0(0@,1i)
-fn get_persistent_storage_var(scopes: &mut Scopes) -> OpcodeArgument {
-    let scope = scopes.get_current_scope();
-    OpcodeArgument::LVAR(scope.get_stack_index() - 2, ArgType::Int)
-}
-
-fn get_frame_pointer_var(scopes: &mut Scopes) -> OpcodeArgument {
-    let scope = scopes.get_current_scope();
-    OpcodeArgument::LVAR(scope.get_stack_index() - 1, ArgType::Int)
 }
 
 /// calculates the offset to static memory buffer and stores it in the special variable for the script to use

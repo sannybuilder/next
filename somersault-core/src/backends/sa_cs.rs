@@ -1,6 +1,6 @@
 use super::Backend;
 use crate::compiler::Instruction;
-use crate::compiler::OpcodeArgument;
+use crate::argument::OpcodeArgument;
 use anyhow::{Ok, Result};
 
 enum DataType {

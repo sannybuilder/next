@@ -1,13 +1,12 @@
 use anyhow::{bail, Result};
 
-use crate::{compiler::OpcodeArgument, parser::ArgType};
-use std::{collections::HashMap, fmt::Display};
+use crate::{argument::OpcodeArgument, parser::ArgType};
+use std::collections::HashMap;
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum ScopeType {
     Root,
-    InternalFunction(String),
-    // Mission,
+    Function(String),
 }
 
 pub const MAX_LVARS: usize = 32;
@@ -25,10 +24,10 @@ pub struct Scope {
     variables: HashMap<String, Variable>,
     functions: HashMap<String, Function>,
     constants: HashMap<String, ConstantSpan>,
-    free_local_variables: [bool; MAX_LVARS],
+    pub free_local_variables: [bool; MAX_LVARS],
     number_of_frame_variables: usize,
     total_number_of_frame_variables: usize,
-    stack_index: usize,
+    number_of_lvars: usize,
     loops: Vec<(String, String)>,
     line: usize,
 }
@@ -105,7 +104,7 @@ impl Scope {
             variables,
             constants,
             functions: HashMap::new(),
-            stack_index: 0,
+            number_of_lvars: 0,
             number_of_frame_variables: 0,
             total_number_of_frame_variables: 0,
             free_local_variables: [true; MAX_LVARS],
@@ -119,16 +118,20 @@ impl Scope {
     }
 
     pub fn is_function_scope(&self) -> bool {
-        matches!(self.ty, ScopeType::InternalFunction(_))
+        matches!(self.ty, ScopeType::Function(_))
     }
 
-    pub fn get_stack_index(&self) -> usize {
-        self.stack_index
+    pub fn get_frame_pointer(&self) -> usize {
+        self.number_of_lvars - 1
+    }
+
+    pub fn get_persistent_storage_pointer(&self) -> usize {
+        self.number_of_lvars - 2
     }
 
     pub fn reserve_space_for_pointers(&mut self) {
         // one variable for persistent storage pointer and one for frame pointer
-        self.stack_index += 2; 
+        self.number_of_lvars += 2;
     }
 
     pub fn get_type(&self) -> &ScopeType {
@@ -351,21 +354,18 @@ impl Scopes {
         format!("$internal.{}", self.label_counter)
     }
 
-    // pub fn persistent_storage_label(&mut self) -> String {
-    //     format!("$internal.storage.persistent")
-    // }
     pub fn frame_storage_label(&mut self) -> String {
         format!("$internal.storage.frame")
     }
 
-    pub fn function_inner_label(&mut self, name: impl Display) -> String {
+    pub fn function_inner_label(&mut self, name: impl std::fmt::Display) -> String {
         format!("$internal.fn.{}", name)
     }
 
     pub fn allocate_local_var(&mut self, ty: ArgType, count: usize) -> Result<usize> {
         let scope = self.get_current_scope();
         let slots = get_number_of_slots(&ty) * count;
-        for i in scope.stack_index..MAX_LVARS {
+        for i in scope.number_of_lvars..MAX_LVARS {
             if scope.free_local_variables[i] {
                 let mut free = true;
                 if i + slots > MAX_LVARS {
@@ -390,7 +390,7 @@ impl Scopes {
 
     pub fn deallocate_local_var(&mut self, index: usize) -> Result<()> {
         let scope = self.get_current_scope();
-        if index >= scope.stack_index {
+        if index >= scope.number_of_lvars {
             if index >= MAX_LVARS {
                 bail!("Attempt to deallocate an invalid local variable {index}")
             }
@@ -434,11 +434,11 @@ impl Scopes {
                 scope.number_of_frame_variables += slots;
                 index
             }
-            _ => {
+            VarType::Local => {
                 let index = self.allocate_local_var(ty, count)?;
                 let slots = get_number_of_slots(&ty) * count;
                 let scope = self.get_current_scope();
-                scope.stack_index += slots;
+                scope.number_of_lvars += slots;
                 index
             }
         };
