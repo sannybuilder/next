@@ -105,6 +105,16 @@ pub fn compile(program: AstNodeSpan) -> Result<Vec<Instruction>> {
         }
     }
 
+    if scopes.get_heap_size() > 0 {
+        prepend_vec(&mut instructions, heap_allocate_instruct(&mut scopes));
+        // extra space to align buffer to 4 bytes
+        instructions.push(Instruction::RawBytes(vec![0, 0, 0, 0]));
+
+        instructions.push(Instruction::Label(scopes.buf_label()));
+        let buf = std::iter::repeat(0).take(scopes.get_heap_size()).collect();
+        instructions.push(Instruction::RawBytes(buf));
+    }
+
     if !scopes.get_exported_functions().is_empty() {
         let mut buf = vec![];
 
@@ -177,13 +187,6 @@ pub fn compile(program: AstNodeSpan) -> Result<Vec<Instruction>> {
                 Instruction::Label(exit_label),
             ],
         );
-    }
-
-    if scopes.get_heap_size() > 0 {
-        prepend_vec(&mut instructions, heap_allocate_instruct(&mut scopes));
-        instructions.push(Instruction::Label(scopes.buf_label()));
-        let buf = std::iter::repeat(0).take(scopes.get_heap_size()).collect();
-        instructions.push(Instruction::RawBytes(buf));
     }
 
     scopes.exit();
@@ -757,17 +760,14 @@ fn visit_export_function(
         )?;
     }
 
-    let scope = scopes.get_current_scope();
-    if scope.uses_heap() {
-        // because exported functions don't have a heap pointer given by callee, they have to calculate it themselves
-        let header = heap_allocate_instruct(scopes);
-        cache.insert(
-            0,
-            Instruction::Label(format!("$internal.{}.inner", inner_node.name)),
-        );
-        for inst in header.into_iter().rev() {
-            cache.insert(0, inst);
-        }
+    // because exported functions don't have a heap pointer given by callee, they have to calculate it themselves
+    let header = heap_allocate_instruct(scopes);
+    cache.insert(
+        0,
+        Instruction::Label(format!("$internal.{}.inner", inner_node.name)),
+    );
+    for inst in header.into_iter().rev() {
+        cache.insert(0, inst);
     }
 
     Ok(cache)
