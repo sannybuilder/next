@@ -90,7 +90,7 @@ pub fn compile(program: AstNodeSpan) -> Result<Vec<Instruction>> {
     let mut instructions = vec![];
 
     scopes.enter(ScopeType::Root, 0);
-    scopes.get_current_scope().inc_stack_index();
+    scopes.get_current_scope().reserve_space_for_pointers();
     visit_stmt(
         &program,
         &mut |inst| {
@@ -105,16 +105,35 @@ pub fn compile(program: AstNodeSpan) -> Result<Vec<Instruction>> {
         }
     }
 
-    if scopes.get_heap_size() > 0 {
-        prepend_vec(&mut instructions, heap_allocate_instruct(&mut scopes));
-        // extra space to align buffer to 4 bytes
-        instructions.push(Instruction::RawBytes(vec![0, 0, 0, 0]));
+    // extra space to align buffer to 4 bytes
+    instructions.push(Instruction::RawBytes(vec![0, 0, 0, 0]));
+    instructions.push(Instruction::Label(scopes.frame_storage_label()));
+    let frame_storage = std::iter::repeat(0)
+        .take(scopes.get_frame_storage_size())
+        .collect();
 
-        instructions.push(Instruction::Label(scopes.buf_label()));
-        let buf = std::iter::repeat(0).take(scopes.get_heap_size()).collect();
-        instructions.push(Instruction::RawBytes(buf));
+    instructions.push(Instruction::RawBytes(frame_storage));
+
+    // allocate persistent storage for static variables
+    if scopes.get_persistent_storage_size() > 0 {
+        prepend_vec(&mut instructions, heap_allocate_prelude(&mut scopes));
+        // extra space to align buffer to 4 bytes
+        // instructions.push(Instruction::RawBytes(vec![0, 0, 0, 0]));
+        // instructions.push(Instruction::Label(scopes.persistent_storage_label()));
+        let heap = std::iter::repeat(0)
+            .take(scopes.get_persistent_storage_size())
+            .collect();
+        instructions.push(Instruction::RawBytes(heap));
     }
 
+    // allocate temp storage for function's local variables
+    // must prepend vec before persistent for heap pointer calculation
+    prepend_vec(
+        &mut instructions,
+        temp_storage_allocate_prelude(&mut scopes),
+    );
+
+    // optional EXPT custom header
     if !scopes.get_exported_functions().is_empty() {
         let mut buf = vec![];
 
@@ -761,12 +780,19 @@ fn visit_export_function(
     }
 
     // because exported functions don't have a heap pointer given by callee, they have to calculate it themselves
-    let header = heap_allocate_instruct(scopes);
     cache.insert(
         0,
-        Instruction::Label(format!("$internal.{}.inner", inner_node.name)),
+        Instruction::Label(scopes.function_inner_label(&inner_node.name)),
     );
-    for inst in header.into_iter().rev() {
+
+    let persistent_storage_prelude = heap_allocate_prelude(scopes);
+    for inst in persistent_storage_prelude.into_iter().rev() {
+        cache.insert(0, inst);
+    }
+
+    // must prepend vec before persistent for TIMERA elimination optimization
+    let temp_storage_prelude = temp_storage_allocate_prelude(scopes);
+    for inst in temp_storage_prelude.into_iter().rev() {
         cache.insert(0, inst);
     }
 
@@ -841,7 +867,11 @@ where
                 }
             }
 
-            scopes.get_current_scope().inc_stack_index(); // reserve slot for heap pointer
+            let scope = scopes.get_current_scope();
+            scope.reserve_space_for_pointers();
+            // remember how many local variables this function defines
+            // this will be used to create a new frame when another function is called (especially useful for recursive call, to not overwrite current state)
+            scope.set_frame_size(count_static_variables(&inner_node.body));
 
             if inner_node.is_exported {
                 let instructions = visit_export_function(inner_node, scopes)?;
@@ -850,10 +880,9 @@ where
                 }
             } else {
                 let scope = create_scope(&inner_node.body, scopes)?;
-                emit(Instruction::Label(format!(
-                    "$internal.{}.inner",
-                    inner_node.name.clone()
-                )));
+                emit(Instruction::Label(
+                    scopes.function_inner_label(&inner_node.name),
+                ));
                 for stmt in scope {
                     visit_stmt(&stmt, emit, scopes)?;
                 }
@@ -881,11 +910,17 @@ where
         AstNode::NodeVarDeclStml(inner_node) => {
             let mut names = vec![];
 
+            let var_type = if scopes.get_current_scope().is_function_scope() {
+                VarType::Frame
+            } else {
+                VarType::Persistent
+            };
+
             for node in &inner_node.names {
                 match &node.node {
                     AstNode::NodeIdentifier(name) => {
                         scopes
-                            .register_var(name.to_string(), inner_node.ty, VarType::HeapAllocated)
+                            .register_var(name.to_string(), inner_node.ty, var_type)
                             .map_err(|e| anyhow!("{e} at line {}", this_node.line))?;
                         let inst = Instruction::VarDecl(VarDecl {
                             name: name.clone(),
@@ -911,7 +946,7 @@ where
                                         arr_name.to_string(),
                                         inner_node.ty,
                                         count as usize,
-                                        VarType::HeapAllocated,
+                                        var_type,
                                     )
                                     .map_err(|e| anyhow!("{e} at line {}", this_node.line))?;
                                 let inst = Instruction::ArrayDecl(ArrayDecl {
@@ -1369,7 +1404,6 @@ where
             );
         };
 
-        deallocate_temp_var(arg, scopes)?;
         args.push(arg.clone());
     }
 
@@ -1377,14 +1411,35 @@ where
         // function name is the label
 
         // optimization: skip heap setup if function has it, because we pass heap pointer explicitly
-        let offset = OpcodeArgument::LABEL(format!("$internal.{}.inner", inner_node.name));
-        //pass heap pointer from parent scope as last argument
-        args.push(OpcodeArgument::LVAR(
-            scopes.get_current_scope().get_stack_index() - 1,
-            ArgType::Int,
-        ));
+        let offset = OpcodeArgument::LABEL(scopes.function_inner_label(&inner_node.name));
+        // pass persistent storage pointer from parent scope
+        args.push(get_persistent_storage_var(scopes));
 
-        args.insert(0, (sig.input_count + 1).into());
+        // creating new stack frame and passing it to callee
+        let frame_size = scopes.get_current_scope().get_frame_size();
+
+        if frame_size > 0 {
+            let ty = ArgType::Int;
+            let temp_index = scopes.allocate_local_var(ty, 1)?;
+            let temp_index_var = OpcodeArgument::LVAR(temp_index, ty);
+
+            // temp_index_var = fp + index
+            emit(Instruction::OpcodeInst(OpcodeInst {
+                id: get_assignment_opcode_binary(&ty, &Token::Add)
+                    .map_err(|e| anyhow!("{e} at line {}", inner_node.name.line))?,
+                args: vec![
+                    get_frame_pointer_var(scopes),
+                    OpcodeArgument::INT(frame_size as _),
+                    temp_index_var.clone(),
+                ],
+                is_variadic: false,
+            }));
+            args.push(temp_index_var);
+        } else {
+            args.push(get_frame_pointer_var(scopes));
+        }
+
+        args.insert(0, (sig.input_count + 2).into()); // +2 for storage pointers
 
         args.insert(0, offset);
         sig.is_variadic = true;
@@ -1399,6 +1454,10 @@ where
         } else {
             args.push(target);
         }
+    }
+
+    for arg in &args {
+        deallocate_temp_var(arg, scopes)?
     }
 
     emit(Instruction::OpcodeInst(OpcodeInst {
@@ -1536,45 +1595,33 @@ where
                 inner_node.index.line
             );
 
-            let unit_size = crate::scope::get_type_size(&array.ty);
-
-            match array.var_type {
-                VarType::HeapAllocated => OpcodeArgument::ARRAY(Box::new((
-                    OpcodeArgument::GVAR(array.index + i as usize * unit_size, array.ty),
-                    OpcodeArgument::LVAR(
-                        scopes.get_current_scope().get_stack_index() - 1,
-                        ArgType::Int,
-                    ),
-                    1,
-                ))),
-                VarType::Local => {
-                    OpcodeArgument::LVAR(array.index + i as usize * unit_size, array.ty)
-                }
-            }
+            let unit_size = crate::scope::get_number_of_slots(&array.ty);
+            variable_to_argument(
+                array.var_type,
+                array.index + i as usize * unit_size,
+                array.ty,
+                scopes,
+            )
         }
 
         _ => {
             match array.var_type {
-                VarType::HeapAllocated => {
+                VarType::Persistent | VarType::Frame => {
                     let ty = ArgType::Int;
                     let temp_index = scopes.allocate_local_var(ty, 1)?;
                     let temp_index_var = OpcodeArgument::LVAR(temp_index, ty);
 
-                    // temp_index_var = heap (0@) + index
+                    // temp_index_var = storage + index
                     emit(Instruction::OpcodeInst(OpcodeInst {
                         id: get_assignment_opcode_binary(&ty, &Token::Add)
                             .map_err(|e| anyhow!("{e} at line {}", inner_node.name.line))?,
                         args: vec![
-                            OpcodeArgument::LVAR(
-                                scopes.get_current_scope().get_stack_index() - 1,
-                                ty,
-                            ), // heap pointer
+                            get_storage_for_var(array.var_type, scopes),
                             index_arg.clone(),
                             temp_index_var.clone(),
                         ],
                         is_variadic: false,
                     }));
-
                     OpcodeArgument::ARRAY(Box::new((
                         OpcodeArgument::GVAR(array.index, array.ty),
                         temp_index_var,
@@ -1752,6 +1799,61 @@ fn get_node_type<'a>(node: &AstNodeSpan, scopes: &mut Scopes) -> Result<ArgType>
     get_node_type_internal(&node.node, scopes).map_err(|e| anyhow!("{e} at line {}", node.line))
 }
 
+fn count_static_variables<'a>(stmts: &Vec<AstNodeSpan>) -> usize {
+    use crate::scope::get_number_of_slots;
+
+    fn visit(stmts: &Vec<AstNodeSpan>) -> usize {
+        let mut size = 0;
+        for stmt in stmts {
+            match &stmt.node {
+                AstNode::NodeVarDeclStml(v) => {
+                    for name in &v.names {
+                        match &name.node {
+                            AstNode::NodeIndexExpression(index_node) => {
+                                match (&index_node.name.node, &index_node.index.node) {
+                                    (
+                                        AstNode::NodeIdentifier(_),
+                                        AstNode::NodeIntLiteral(count),
+                                    ) if *count > 0 => {
+                                        size += get_number_of_slots(&v.ty) * (*count as usize);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            AstNode::NodeIdentifier(_) => {
+                                size += get_number_of_slots(&v.ty);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                // AstNode::NodeFuncDeclStml(node_func_decl_stml) => {
+                //     size += visit_body(&node_func_decl_stml.body)
+                // }
+                // AstNode::NodeList(vec) => {
+                //     size += visit_body(vec);
+                // }
+                AstNode::NodeIfStatement(node_if_statement) => {
+                    size += visit(&node_if_statement.then_block);
+                    size += node_if_statement
+                        .else_block
+                        .as_ref()
+                        .map(|block| visit(block))
+                        .unwrap_or(0);
+                }
+                AstNode::NodeWhileStatement(node_while_statement) => {
+                    size += visit(&node_while_statement.body)
+                }
+                _ => {}
+            }
+        }
+
+        size
+    }
+
+    visit(stmts)
+}
+
 /// finds all functions defined in current scope and moves them at the bottom to avoid control flow hitting them
 /// todo: consider adding a breakpoint before function body with a warning
 fn create_scope<'a>(
@@ -1828,6 +1930,30 @@ fn create_scope<'a>(
     Ok(scope)
 }
 
+fn variable_to_argument(
+    var_type: crate::scope::VarType,
+    index: usize,
+    ty: ArgType,
+    scopes: &mut Scopes,
+) -> OpcodeArgument {
+    match var_type {
+        VarType::Persistent | VarType::Frame => OpcodeArgument::ARRAY(Box::new((
+            OpcodeArgument::GVAR(index, ty),
+            get_storage_for_var(var_type, scopes),
+            1,
+        ))),
+        VarType::Local => OpcodeArgument::LVAR(index, ty),
+    }
+}
+
+fn get_storage_for_var(var_type: crate::scope::VarType, scopes: &mut Scopes) -> OpcodeArgument {
+    match var_type {
+        VarType::Persistent => get_persistent_storage_var(scopes),
+        VarType::Frame => get_frame_pointer_var(scopes),
+        _ => unreachable!("no other types here"),
+    }
+}
+
 fn node_to_argument(node: &AstNodeSpan, scopes: &mut Scopes) -> Result<OpcodeArgument> {
     let argument = match &node.node {
         AstNode::NodeIntLiteral(i) => OpcodeArgument::INT(*i),
@@ -1839,15 +1965,9 @@ fn node_to_argument(node: &AstNodeSpan, scopes: &mut Scopes) -> Result<OpcodeArg
             if let Some(v) = scope.find_constant(name) {
                 return Ok(v.clone());
             }
+
             if let Some(v) = scope.find_var(name) {
-                match v.var_type {
-                    VarType::HeapAllocated => OpcodeArgument::ARRAY(Box::new((
-                        OpcodeArgument::GVAR(v.index, v.ty),
-                        OpcodeArgument::LVAR(scope.get_stack_index() - 1, ArgType::Int),
-                        1,
-                    ))),
-                    VarType::Local => OpcodeArgument::LVAR(v.index, v.ty),
-                }
+                variable_to_argument(v.var_type, v.index, v.ty, scopes)
             } else {
                 bail!(
                     "Unknown name {node} at line {}. Did you mean {node}()?",
@@ -1899,40 +2019,64 @@ fn match_types(ty1: ArgType, ty2: ArgType) -> bool {
     }
 }
 
-fn heap_allocate_instruct(scopes: &mut Scopes) -> Vec<Instruction> {
-    let stack_index = scopes.get_current_scope().get_stack_index() - 1;
-    let buf_label = scopes.buf_label();
+/// returns the variable that holds an offset to statically allocated memory block in the script where static variables keep their values
+/// used in array costructs like &0(0@,1i)
+fn get_persistent_storage_var(scopes: &mut Scopes) -> OpcodeArgument {
+    let scope = scopes.get_current_scope();
+    OpcodeArgument::LVAR(scope.get_stack_index() - 2, ArgType::Int)
+}
+
+fn get_frame_pointer_var(scopes: &mut Scopes) -> OpcodeArgument {
+    let scope = scopes.get_current_scope();
+    OpcodeArgument::LVAR(scope.get_stack_index() - 1, ArgType::Int)
+}
+
+/// calculates the offset to static memory buffer and stores it in the special variable for the script to use
+fn heap_allocate_prelude(scopes: &mut Scopes) -> Vec<Instruction> {
     vec![
+        // optimization: persistent storage always follows frame storage which has fixed size
+        // heap_pointer = temp_pointer + frame_size / 4
         Instruction::OpcodeInst(OpcodeInst {
-            id: OP_GET_LABEL_POINTER,
+            id: OP_INT_ADD,
             args: vec![
-                OpcodeArgument::LABEL(buf_label.clone()),
-                OpcodeArgument::LVAR(stack_index, ArgType::Int),
+                get_frame_pointer_var(scopes),
+                OpcodeArgument::INT((scopes.get_frame_storage_size() / 4) as _),
+                get_persistent_storage_var(scopes),
             ],
             is_variadic: false,
         }),
+    ]
+}
+
+fn temp_storage_allocate_prelude(scopes: &mut Scopes) -> Vec<Instruction> {
+    vec![
         Instruction::OpcodeInst(OpcodeInst {
             id: OP_GET_VAR_POINTER,
             args: vec![
                 OpcodeArgument::GVAR(0, ArgType::Int),
-                OpcodeArgument::LVAR(33, ArgType::Int),
+                get_persistent_storage_var(scopes), // because we reserve storage var anyway, we can use it for temp value here
+            ],
+            is_variadic: false,
+        }),
+        Instruction::OpcodeInst(OpcodeInst {
+            id: OP_GET_LABEL_POINTER,
+            args: vec![
+                OpcodeArgument::LABEL(scopes.frame_storage_label()),
+                get_frame_pointer_var(scopes),
             ],
             is_variadic: false,
         }),
         Instruction::OpcodeInst(OpcodeInst {
             id: 0x0062,
             args: vec![
-                OpcodeArgument::LVAR(stack_index, ArgType::Int),
-                OpcodeArgument::LVAR(33, ArgType::Int),
+                get_frame_pointer_var(scopes),
+                get_persistent_storage_var(scopes),
             ],
             is_variadic: false,
         }),
         Instruction::OpcodeInst(OpcodeInst {
             id: 0x0016,
-            args: vec![
-                OpcodeArgument::LVAR(stack_index, ArgType::Int),
-                OpcodeArgument::INT(4),
-            ],
+            args: vec![get_frame_pointer_var(scopes), OpcodeArgument::INT(4)],
             is_variadic: false,
         }),
     ]

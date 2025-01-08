@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 
 use crate::{compiler::OpcodeArgument, parser::ArgType};
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum ScopeType {
@@ -16,8 +16,7 @@ pub const MAX_LVARS: usize = 32;
 pub struct Scopes {
     scopes: Vec<Scope>,
     label_counter: usize,
-    max_stack_index: usize,
-    current_var_index: usize,
+    number_of_persistent_variables: usize,
     exported_functions: Vec<FunctionExport>,
 }
 
@@ -27,10 +26,11 @@ pub struct Scope {
     functions: HashMap<String, Function>,
     constants: HashMap<String, ConstantSpan>,
     free_local_variables: [bool; MAX_LVARS],
+    number_of_frame_variables: usize,
+    total_number_of_frame_variables: usize,
     stack_index: usize,
     loops: Vec<(String, String)>,
     line: usize,
-    uses_heap: bool,
 }
 
 #[derive(Clone)]
@@ -49,16 +49,14 @@ pub struct FunctionExport {
 
                     HEAP                                        RUNTIME
     |------------------|-----------------|                |-----------------------|
-    | static (declared)| temp variables  |                | 0..31 local variables |
+    | persistent       | frame variables |                | 0..31 local variables |
     | variables (2)    | (3)             |                | in each function (1)  |
     |------------------|-----------------|                |-----------------------|
 
     - (1) local variables provided by SCM runtime (32 max). Used as function arguments, or array indexes. reused in each scope.
-            heap pointer (0@) is a special variable used by the compiler. can not be reused.
-    - (2) declared variables - variables declared with int/float/string type, store script's state. get a unique index. can not be reused.
-    - (3) stack variables created by compiler to carry temporary expression results. share heap with persistent variables, but use higher indexes. can be reused
-            (CURRENTLY REMOVED)
-
+            two pointers (0@, 1@) are special variables used by the compiler. can not be reused.
+    - (2) persistent variables declared in global scope with a unique index that can not be reused.
+    - (3) frame variables declared in function scope, index is relative to frame pointer, can be reused in different functions
 */
 
 impl Scope {
@@ -108,10 +106,11 @@ impl Scope {
             constants,
             functions: HashMap::new(),
             stack_index: 0,
+            number_of_frame_variables: 0,
+            total_number_of_frame_variables: 0,
             free_local_variables: [true; MAX_LVARS],
             loops: Vec::new(),
             line,
-            uses_heap: false,
         }
     }
 
@@ -120,22 +119,16 @@ impl Scope {
     }
 
     pub fn is_function_scope(&self) -> bool {
-        matches!(
-            self.ty,
-            ScopeType::InternalFunction(_)
-        )
-    }
-
-    pub fn uses_heap(&self) -> bool {
-        self.uses_heap
+        matches!(self.ty, ScopeType::InternalFunction(_))
     }
 
     pub fn get_stack_index(&self) -> usize {
         self.stack_index
     }
 
-    pub fn inc_stack_index(&mut self) {
-        self.stack_index += 1;
+    pub fn reserve_space_for_pointers(&mut self) {
+        // one variable for persistent storage pointer and one for frame pointer
+        self.stack_index += 2; 
     }
 
     pub fn get_type(&self) -> &ScopeType {
@@ -203,9 +196,17 @@ impl Scope {
     pub fn get_loop_labels(&self) -> Option<&(String, String)> {
         self.loops.last()
     }
+
+    pub fn get_frame_size(&self) -> usize {
+        self.total_number_of_frame_variables
+    }
+
+    pub fn set_frame_size(&mut self, value: usize) {
+        self.total_number_of_frame_variables = value;
+    }
 }
 
-pub fn get_type_size(ty: &ArgType) -> usize {
+pub fn get_number_of_slots(ty: &ArgType) -> usize {
     match ty {
         ArgType::String => 4,
         ArgType::Void => 0,
@@ -337,8 +338,12 @@ impl Scopes {
         }
     }
 
-    pub fn get_heap_size(&self) -> usize {
-        (self.max_stack_index + self.current_var_index) * 4
+    pub fn get_persistent_storage_size(&self) -> usize {
+        self.number_of_persistent_variables * 4
+    }
+
+    pub fn get_frame_storage_size(&self) -> usize {
+        256
     }
 
     pub fn unique_label(&mut self) -> String {
@@ -346,27 +351,34 @@ impl Scopes {
         format!("$internal.{}", self.label_counter)
     }
 
-    pub fn buf_label(&mut self) -> String {
-        format!("$internal.buf")
+    // pub fn persistent_storage_label(&mut self) -> String {
+    //     format!("$internal.storage.persistent")
+    // }
+    pub fn frame_storage_label(&mut self) -> String {
+        format!("$internal.storage.frame")
+    }
+
+    pub fn function_inner_label(&mut self, name: impl Display) -> String {
+        format!("$internal.fn.{}", name)
     }
 
     pub fn allocate_local_var(&mut self, ty: ArgType, count: usize) -> Result<usize> {
         let scope = self.get_current_scope();
-        let count = get_type_size(&ty) * count;
+        let slots = get_number_of_slots(&ty) * count;
         for i in scope.stack_index..MAX_LVARS {
             if scope.free_local_variables[i] {
                 let mut free = true;
-                if i + count > MAX_LVARS {
+                if i + slots > MAX_LVARS {
                     break;
                 }
-                for j in 0..count {
+                for j in 0..slots {
                     if !scope.free_local_variables[i + j] {
                         free = false;
                         break;
                     }
                 }
                 if free {
-                    for j in 0..count {
+                    for j in 0..slots {
                         scope.free_local_variables[i + j] = false;
                     }
                     return Ok(i);
@@ -409,18 +421,24 @@ impl Scopes {
         var_type: VarType,
     ) -> Result<()> {
         let index = match var_type {
-            VarType::HeapAllocated => {
-                let index = self.current_var_index;
-                let size = get_type_size(&ty) * count;
-                self.current_var_index += size;
-                self.get_current_scope().uses_heap = true;
+            VarType::Persistent => {
+                let index = self.number_of_persistent_variables;
+                let slots = get_number_of_slots(&ty) * count;
+                self.number_of_persistent_variables += slots;
+                index
+            }
+            VarType::Frame => {
+                let scope = self.get_current_scope();
+                let index = scope.number_of_frame_variables;
+                let slots = get_number_of_slots(&ty) * count;
+                scope.number_of_frame_variables += slots;
                 index
             }
             _ => {
                 let index = self.allocate_local_var(ty, count)?;
-                let size = get_type_size(&ty) * count;
+                let slots = get_number_of_slots(&ty) * count;
                 let scope = self.get_current_scope();
-                scope.stack_index += size;
+                scope.stack_index += slots;
                 index
             }
         };
@@ -464,8 +482,9 @@ impl Scopes {
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum VarType {
-    HeapAllocated,
-    Local,
+    Persistent, // global (static) variables
+    Frame,      // local function variables
+    Local,      // pre-allocated script variables only used for temp calculations
 }
 
 #[derive(PartialEq, Clone, Copy)]
