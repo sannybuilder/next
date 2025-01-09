@@ -57,10 +57,10 @@ export default [
     title: 'Pointers',
     code: pointers,
   },
-  // {
-  //   title: 'CLEO 5 Modules',
-  //   code: modules,
-  // },
+  {
+    title: 'CLEO 5 Modules',
+    code: modules,
+  },
   {
     title: 'Example: Quicksort',
     code: qsort,

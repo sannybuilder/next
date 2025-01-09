@@ -7,24 +7,18 @@ export function circle_area(radius: float): float
 end
 
 
-// You can then save this file under any name (e.g. area.mod) and call in a Sanny Builder script:
+// You can then save this file under any name (e.g. area.s) and call in a Sanny Builder script:
 
 /*
 // Sanny Builder 4 example:
 // Learn more: https://docs.sannybuilder.com/language/import-export
 
-import circle_area from "area.mod" // see an example module above
+import circle_area from "area.s" // see an example module above
 float area = circle_area(5.0)
 
 
 
 */
 
-// Note that unlike other functions, exported functions have limited space for local variables (31 in total, including input arguments):
-
-export function foo
-    int vars[31]
-    // can't declare more variables here
-end
 
 `;
