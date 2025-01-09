@@ -100,6 +100,14 @@ export class LayoutComponent {
         const element = document.createElement('a');
         element.href = URL.createObjectURL(blob);
         element.setAttribute('download', `${title.toLowerCase()}.cs`);
+
+        const extensions = ['.cleo', '.cs', '.cm', '.cs3', '.cs4', '.s'];
+        for (const ext of extensions) {
+          if (title.toLowerCase().endsWith(ext)) {
+            element.setAttribute('download', title);
+            break;
+          }
+        }
         element.style.display = 'none';
         document.body.appendChild(element);
         element.click();
