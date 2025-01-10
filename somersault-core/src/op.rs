@@ -6,6 +6,7 @@ pub const OP_CLEO_RETURN: u16 = 0x0AB2;
 pub const OP_CLEO_RETURN_WITH: u16 = 0x2002;
 pub const OP_CLEO_RETURN_FAIL: u16 = 0x2003;
 
+pub const OP_GET_LABEL_POINTER: u16 = 0x0AC6;
 pub const OP_ALLOCATE_MEMORY: u16 = 0x0AC8;
 pub const OP_GET_VAR_POINTER: u16 = 0x0AC7;
 pub const OP_BIT_NOT: u16 = 0x0B13;
