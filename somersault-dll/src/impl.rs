@@ -13,7 +13,6 @@ fn compile(input: String) -> Result<Vec<u8>> {
 pub fn run(file_name: &str) -> Result<Vec<u8>> {
     let path = Path::new(file_name);
     let code = std::fs::read_to_string(path)?;
-    std::fs::write("output.c", &code)?;
     compile(code)
 }
 
