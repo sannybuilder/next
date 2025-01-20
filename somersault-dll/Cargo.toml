@@ -1,8 +1,12 @@
 [package]
-name = "ssc"
+name = "ssclib"
 version = "0.2.250"
 edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
 
 [dependencies]
 somersault-core = { path = "../somersault-core", version = "*" }
 anyhow = "1.0.86"
+libc = "0.2.79"

@@ -289,9 +289,18 @@ dependencies = [
 
 [[package]]
 name = "ssc"
-version = "0.1.0"
+version = "0.2.250"
 dependencies = [
  "anyhow",
+ "somersault-core",
+]
+
+[[package]]
+name = "ssclib"
+version = "0.2.250"
+dependencies = [
+ "anyhow",
+ "libc",
  "somersault-core",
 ]
 

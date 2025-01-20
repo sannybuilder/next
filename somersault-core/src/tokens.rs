@@ -204,7 +204,14 @@ fn get_next_token(input: &[u8], index: &mut usize, line: &mut usize) -> Option<T
                 }
                 Token::Space
             }
-            b'\n' | b'\r' => {
+            b'\r' => {
+                advance!();
+                if cur!() == Some(&b'\n') {
+                    advance!();
+                }
+                Token::NewLine
+            }
+            b'\n' => {
                 advance!();
                 Token::NewLine
             }
