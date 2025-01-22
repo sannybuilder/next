@@ -425,6 +425,10 @@ impl Scopes {
                 let index = self.number_of_persistent_variables;
                 let slots = get_number_of_slots(&ty) * count;
                 self.number_of_persistent_variables += slots;
+                if self.number_of_persistent_variables > (0xFFFF / 4) {
+                    bail!("Run out of memory. Number of allocated variables exceeds 16383");
+                }
+
                 index
             }
             VarType::Frame => {
@@ -432,6 +436,10 @@ impl Scopes {
                 let index = scope.number_of_frame_variables;
                 let slots = get_number_of_slots(&ty) * count;
                 scope.number_of_frame_variables += slots;
+                if scope.number_of_frame_variables > (0xFFFF / 4) {
+                    bail!("Run out of memory. Number of allocated variables exceeds 16383");
+                }
+
                 index
             }
             VarType::Local => {

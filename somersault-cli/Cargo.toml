@@ -1,6 +1,6 @@
 [package]
 name = "ssc"
-version = "0.2.250"
+version = "0.2.254"
 edition = "2021"
 
 [dependencies]
