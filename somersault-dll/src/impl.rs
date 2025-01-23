@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use somersault_core::{backends, toolchain};
-use std::{path::Path};
+use std::path::Path;
 
 fn compile(input: String) -> Result<Vec<u8>> {
     let mut backend = backends::SaCsBackend::default();
@@ -15,4 +15,3 @@ pub fn run(file_name: &str) -> Result<Vec<u8>> {
     let code = std::fs::read_to_string(path)?;
     compile(code)
 }
-
