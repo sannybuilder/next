@@ -4,11 +4,18 @@ use libc::c_char;
 pub type PChar = *const c_char;
 
 #[no_mangle]
-pub unsafe extern "C" fn compile(inputfile: PChar, outputfile: PChar, out: *mut PChar) -> bool {
+pub unsafe extern "C" fn compile(
+    inputfile: PChar,
+    outputfile: PChar,
+    definitions_file: PChar,
+    out: *mut PChar,
+) -> bool {
     boolclosure! {{
         let inputfile = pchar_to_str(inputfile)?;
         let outputfile = pchar_to_str(outputfile)?;
-        match run(inputfile)
+        let definitions_file = pchar_to_str(definitions_file)?;
+        let definitions = std::fs::read_to_string(definitions_file).ok()?;
+        match run(inputfile, definitions)
             .and_then(|buf| std::fs::write(outputfile, buf).map_err(|e| anyhow!("{}", e))) {
             Ok(_) => {
                 Some(())

@@ -63,8 +63,8 @@ pub struct ArrayDecl {
     pub count: i32,
 }
 
-pub fn compile(program: AstNodeSpan) -> Result<Vec<Instruction>> {
-    let mut scopes = Scopes::new();
+pub fn compile(program: AstNodeSpan, definitions: String) -> Result<Vec<Instruction>> {
+    let mut scopes = Scopes::new(definitions);
     let mut instructions = vec![];
 
     scopes.enter(ScopeType::Root, 0);

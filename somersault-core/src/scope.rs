@@ -13,6 +13,7 @@ pub const MAX_LVARS: usize = 32;
 
 #[derive(Default)]
 pub struct Scopes {
+    definitions: String,
     scopes: Vec<Scope>,
     label_counter: usize,
     number_of_persistent_variables: usize,
@@ -218,9 +219,11 @@ pub fn get_number_of_slots(ty: &ArgType) -> usize {
 }
 
 impl Scopes {
-    pub fn new() -> Self {
-        let scopes = Scopes::default();
-        scopes
+    pub fn new(definitions: String) -> Self {
+        Scopes {
+            definitions,
+            ..Default::default()
+        }
     }
     pub fn get_current_scope<'a>(&'a mut self) -> &'a mut Scope {
         self.scopes.last_mut().unwrap()
@@ -228,7 +231,7 @@ impl Scopes {
     pub fn enter(&mut self, ty: ScopeType, line: usize) {
         let mut scope = Scope::new(ty.clone(), line);
         if ty == ScopeType::Root {
-            let library = somersault_sbl::parse().unwrap();
+            let library = somersault_sbl::parse_from(&self.definitions).unwrap();
 
             for e in library.extensions {
                 for c in e.commands {
