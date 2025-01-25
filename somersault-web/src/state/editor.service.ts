@@ -1,7 +1,7 @@
 import { computed, Injectable, signal } from '@angular/core';
 import compilerInit, {
   compile_binary,
-  compile_text_with_definitions,
+  compile_text,
   get_ssc_version,
 } from '../../../somersault-wasm/pkg';
 @Injectable({
@@ -31,7 +31,7 @@ export class EditorService {
       const source = this.source();
       const definitions = this.definitions();
       try {
-        return compile_text_with_definitions(source, definitions);
+        return compile_text(source, definitions);
       } catch (e) {
         throw e;
       }
@@ -42,8 +42,9 @@ export class EditorService {
   compiled = computed(() => {
     if (this.isReady()) {
       const source = this.source();
+      const definitions = this.definitions();
       try {
-        return compile_binary(source);
+        return compile_binary(source, definitions);
       } catch (e) {}
     }
     return '';

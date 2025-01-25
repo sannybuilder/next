@@ -90,13 +90,24 @@ impl<'a> Into<Vec<u8>> for &OpcodeArgument {
         }
     }
 }
-#[derive(Default)]
 pub struct SaCsBackend {
     pub buf: Vec<u8>,
     pub definitions: String
 }
 
+impl  SaCsBackend {
+    pub fn new(definitions: String) -> Self {
+        Self {
+            buf: Vec::new(),
+            definitions,
+        }
+    }
+}
+
 impl Backend for SaCsBackend {
+    fn get_definitions(&self) -> String {
+        self.definitions.clone()
+    }
     fn process(&mut self, insts: Vec<crate::compiler::Instruction>) -> Result<()> {
         for inst in insts {
             match inst {

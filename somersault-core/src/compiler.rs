@@ -63,8 +63,8 @@ pub struct ArrayDecl {
     pub count: i32,
 }
 
-pub fn compile(program: AstNodeSpan) -> Result<Vec<Instruction>> {
-    let mut scopes = Scopes::new();
+pub fn compile(program: AstNodeSpan, definitions: String) -> Result<Vec<Instruction>> {
+    let mut scopes = Scopes::new(definitions);
     let mut instructions = vec![];
 
     scopes.enter(ScopeType::Root, 0);
@@ -1652,6 +1652,7 @@ fn get_assignment_opcode(lhs_ty: &ArgType, rhs_node: &AstNodeSpan) -> Result<u16
         ArgType::String => match &rhs_node.node {
             _ => Ok(OP_SET_LVAR_TEXT_LABEL16),
         },
+        ArgType::IntOrFloat => bail!("Wrong type {} at line {}", lhs_ty, rhs_node.line)
     }
 }
 
@@ -1674,10 +1675,7 @@ fn get_assignment_opcode_binary(ty: &ArgType, op: &Token) -> Result<u16> {
             // Token::Div => Ok(0x2708),
             _ => bail!("Invalid operator {op}"),
         },
-        ArgType::Void => bail!("Void type not allowed in binary operation"),
-        ArgType::String => {
-            bail!("String type not allowed in binary operation")
-        }
+        ArgType::Void | ArgType::String | ArgType::IntOrFloat => bail!("Type {} is not allowed in binary operation", ty)
     }
 }
 
@@ -1703,8 +1701,7 @@ fn get_logical_opcode(ty: &ArgType, op: &Token) -> Result<u16> {
 
             _ => bail!("Invalid operator {op}"),
         },
-        ArgType::Void => bail!("Void type not allowed in logical operation"),
-        ArgType::String => bail!("String type not allowed in logical operation"),
+        ArgType::Void | ArgType::String | ArgType::IntOrFloat => bail!("Type {} is not allowed in logical operation", ty),
     }
 }
 
@@ -1966,6 +1963,10 @@ fn match_types(ty1: ArgType, ty2: ArgType) -> bool {
         (ty1, ty2) if ty1 == ty2 => true,
         (ArgType::Int, ArgType::PInt32) => true,
         (ArgType::PInt32, ArgType::Int) => true,
+        (ArgType::Int, ArgType::IntOrFloat) => true,
+        (ArgType::Float, ArgType::IntOrFloat) => true,
+        (ArgType::IntOrFloat, ArgType::Int) => true,
+        (ArgType::IntOrFloat, ArgType::Float) => true,
         _ => false,
     }
 }

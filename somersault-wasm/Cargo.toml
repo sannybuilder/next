@@ -1,6 +1,6 @@
 [package]
 name = "somersault-wasm"
-version = "0.2.150"
+version = "0.2.254"
 edition = "2021"
 
 [package.metadata.wasm-pack.profile.release]
