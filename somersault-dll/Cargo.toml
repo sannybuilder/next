@@ -11,3 +11,11 @@ name = "ssc"
 somersault-core = { path = "../somersault-core", version = "*" }
 anyhow = "1.0.86"
 libc = "0.2.79"
+
+[build-dependencies]
+winres = "0.1.12"
+
+[package.metadata.winres]
+LegalCopyright = "Copyright © 2024-2025 Seemann"
+ProductName = "Somersault Compiler"
+FileDescription = "Somersault Compiler Library"
