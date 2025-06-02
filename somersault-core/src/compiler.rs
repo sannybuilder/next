@@ -83,42 +83,42 @@ pub fn compile(program: AstNodeSpan, definitions: String) -> Result<Vec<Instruct
         }
     }
 
-    // extra space to align buffer to 4 bytes
-    instructions.push(Instruction::RawBytes(vec![0, 0, 0, 0]));
-    instructions.push(Instruction::Label(scopes.frame_storage_label()));
-    let frame_storage = std::iter::repeat(0)
-        .take(scopes.get_frame_storage_size())
-        .collect();
+    let has_storage =
+        scopes.get_frame_storage_size() > 0 || scopes.get_persistent_storage_size() > 0;
 
-    instructions.push(Instruction::RawBytes(frame_storage));
+    if has_storage || !scopes.get_exported_functions().is_empty() {
+        // extra space to align buffer to 4 bytes
+        instructions.push(Instruction::RawBytes(vec![0, 0, 0, 0]));
+        instructions.push(Instruction::Label(scopes.frame_storage_label()));
+    }
+
+    if scopes.get_frame_storage_size() > 0 {
+        instructions.push(raw_buffer_inst(scopes.get_frame_storage_size()));
+    }
 
     // allocate persistent storage for static variables
     if scopes.get_persistent_storage_size() > 0 {
-        prepend_vec(&mut instructions, heap_allocate_prelude(&mut scopes));
-        // extra space to align buffer to 4 bytes
-        // instructions.push(Instruction::RawBytes(vec![0, 0, 0, 0]));
-        // instructions.push(Instruction::Label(scopes.persistent_storage_label()));
-        let heap = std::iter::repeat(0)
-            .take(scopes.get_persistent_storage_size())
-            .collect();
-        instructions.push(Instruction::RawBytes(heap));
+        prepend_vec(
+            &mut instructions,
+            persistent_storage_allocate_prelude(&mut scopes),
+        );
+        instructions.push(raw_buffer_inst(scopes.get_persistent_storage_size()));
     }
-
-    // allocate temp storage for function's local variables
-    // must prepend vec before persistent for heap pointer calculation
-    prepend_vec(
-        &mut instructions,
-        temp_storage_allocate_prelude(&mut scopes),
-    );
-
+    if has_storage {
+        // allocate temp storage for function's local variables
+        // must prepend vec before persistent for heap pointer calculation
+        prepend_vec(
+            &mut instructions,
+            frame_storage_allocate_prelude(&mut scopes),
+        );
+    }
     // optional EXPT custom header
     if !scopes.get_exported_functions().is_empty() {
         let mut buf = vec![];
 
         // magic
         buf.extend(&[0xFF, 0x7F, 0xFE, 0x00, 0x00]);
-        // EXPT
-        buf.extend(&[0x45, 0x58, 0x50, 0x54]);
+        buf.extend(&[b'E', b'X', b'P', b'T']);
         // export size
         let size = scopes.calculate_export_section_size();
         buf.extend(&size.to_le_bytes());
@@ -763,13 +763,13 @@ fn visit_export_function(
         Instruction::Label(scopes.function_inner_label(&inner_node.name)),
     );
 
-    let persistent_storage_prelude = heap_allocate_prelude(scopes);
+    let persistent_storage_prelude = persistent_storage_allocate_prelude(scopes);
     for inst in persistent_storage_prelude.into_iter().rev() {
         cache.insert(0, inst);
     }
 
     // must prepend vec before persistent for TIMERA elimination optimization
-    let temp_storage_prelude = temp_storage_allocate_prelude(scopes);
+    let temp_storage_prelude = frame_storage_allocate_prelude(scopes);
     for inst in temp_storage_prelude.into_iter().rev() {
         cache.insert(0, inst);
     }
@@ -846,7 +846,9 @@ where
             scope.reserve_space_for_pointers();
             // remember how many local variables this function defines
             // this will be used to create a new frame when another function is called (especially useful for recursive call, to not overwrite current state)
-            scope.set_frame_size(count_static_variables(&inner_node.body));
+            let frame_size = count_static_variables(&inner_node.body);
+            scope.set_frame_size(frame_size);
+            scopes.update_max_frame_size(frame_size);
 
             if inner_node.is_exported {
                 let instructions = visit_export_function(inner_node, scopes)?;
@@ -1652,7 +1654,7 @@ fn get_assignment_opcode(lhs_ty: &ArgType, rhs_node: &AstNodeSpan) -> Result<u16
         ArgType::String => match &rhs_node.node {
             _ => Ok(OP_SET_LVAR_TEXT_LABEL16),
         },
-        ArgType::IntOrFloat => bail!("Wrong type {} at line {}", lhs_ty, rhs_node.line)
+        ArgType::IntOrFloat => bail!("Wrong type {} at line {}", lhs_ty, rhs_node.line),
     }
 }
 
@@ -1675,7 +1677,9 @@ fn get_assignment_opcode_binary(ty: &ArgType, op: &Token) -> Result<u16> {
             // Token::Div => Ok(0x2708),
             _ => bail!("Invalid operator {op}"),
         },
-        ArgType::Void | ArgType::String | ArgType::IntOrFloat => bail!("Type {} is not allowed in binary operation", ty)
+        ArgType::Void | ArgType::String | ArgType::IntOrFloat => {
+            bail!("Type {} is not allowed in binary operation", ty)
+        }
     }
 }
 
@@ -1701,7 +1705,9 @@ fn get_logical_opcode(ty: &ArgType, op: &Token) -> Result<u16> {
 
             _ => bail!("Invalid operator {op}"),
         },
-        ArgType::Void | ArgType::String | ArgType::IntOrFloat => bail!("Type {} is not allowed in logical operation", ty),
+        ArgType::Void | ArgType::String | ArgType::IntOrFloat => {
+            bail!("Type {} is not allowed in logical operation", ty)
+        }
     }
 }
 
@@ -1972,7 +1978,7 @@ fn match_types(ty1: ArgType, ty2: ArgType) -> bool {
 }
 
 /// calculates the offset to static memory buffer and stores it in the special variable for the script to use
-fn heap_allocate_prelude(scopes: &mut Scopes) -> Vec<Instruction> {
+fn persistent_storage_allocate_prelude(scopes: &mut Scopes) -> Vec<Instruction> {
     vec![
         // optimization: persistent storage always follows frame storage which has fixed size
         // heap_pointer = temp_pointer + frame_size / 4
@@ -1988,7 +1994,7 @@ fn heap_allocate_prelude(scopes: &mut Scopes) -> Vec<Instruction> {
     ]
 }
 
-fn temp_storage_allocate_prelude(scopes: &mut Scopes) -> Vec<Instruction> {
+fn frame_storage_allocate_prelude(scopes: &mut Scopes) -> Vec<Instruction> {
     vec![
         Instruction::OpcodeInst(OpcodeInst {
             id: OP_GET_VAR_POINTER,
@@ -2020,4 +2026,10 @@ fn temp_storage_allocate_prelude(scopes: &mut Scopes) -> Vec<Instruction> {
             is_variadic: false,
         }),
     ]
+}
+
+fn raw_buffer_inst(size: usize) -> Instruction {
+    let buf = std::iter::repeat(0).take(size).collect();
+
+    Instruction::RawBytes(buf)
 }

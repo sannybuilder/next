@@ -17,6 +17,7 @@ pub struct Scopes {
     scopes: Vec<Scope>,
     label_counter: usize,
     number_of_persistent_variables: usize,
+    max_frame_size: usize,
     exported_functions: Vec<FunctionExport>,
 }
 
@@ -349,7 +350,15 @@ impl Scopes {
     }
 
     pub fn get_frame_storage_size(&self) -> usize {
+        // const SIZE_OF_VAR: usize = 4; // 32-bit
+        // const RECURSION_LEVELS: usize = 8; // max supported recursion levels
+
+        // self.max_frame_size * SIZE_OF_VAR * RECURSION_LEVELS
         256
+    }
+
+    pub fn update_max_frame_size(&mut self, new_value: usize) {
+        self.max_frame_size = self.max_frame_size.max(new_value);
     }
 
     pub fn unique_label(&mut self) -> String {

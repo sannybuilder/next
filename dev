@@ -1,0 +1,5 @@
+# core + wasm
+# sh s & cargo watch -c -q -w somersault-wasm -w somersault-core -- sh w
+
+# core + web (angular)
+sh ng & cargo watch -c -q -w somersault-core -- sh w
