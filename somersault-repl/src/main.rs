@@ -2,8 +2,8 @@ use somersault_core::{backends, toolchain};
 use somersault_vm::VM;
 use std::{env, path::Path};
 
-fn eval(input: String) {
-    let mut backend = backends::SaCsBackend::default();
+fn eval(input: String, definitions: String) {
+    let mut backend = backends::SaCsBackend::new(definitions);
     match toolchain::run(input.as_bytes(), &mut backend) {
         Ok(_) => {
             let mut cb = |s: String| println!("{s}");
@@ -22,12 +22,14 @@ fn eval(input: String) {
 fn main() {
     use std::io::{stdin, stdout, Write};
 
+    let definitions = std::include_str!("../../data/sa.json");
+
     let args: Vec<_> = env::args().collect();
     // read from input file
     if args.len() > 1 {
         match std::fs::read_to_string(Path::new(&args[1])) {
             Ok(code) => {
-                eval(code);
+                eval(code, definitions.to_string());
             }
             Err(e) => println!("{}", e),
         };
@@ -53,6 +55,6 @@ fn main() {
             break;
         }
 
-        eval(s);
+        eval(s, definitions.to_string());
     }
 }

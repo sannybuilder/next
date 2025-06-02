@@ -1016,6 +1016,7 @@ pub enum ArgType {
     Float = 2,
     String = 3,
     PInt32 = 10,
+    IntOrFloat = 20, // e.g. read_memory
 }
 
 impl Into<u8> for ArgType {
@@ -1032,6 +1033,7 @@ impl Display for ArgType {
             ArgType::Float => write!(f, "float"),
             ArgType::String => write!(f, "string"),
             ArgType::PInt32 => write!(f, "pint32"),
+            ArgType::IntOrFloat => write!(f, "any"),
         }
     }
 }
@@ -1043,6 +1045,7 @@ impl From<&String> for ArgType {
             "float" => ArgType::Float,
             "string" | "gxt_key" | "zone_key" => ArgType::String,
             "pint32" | "pint" => ArgType::PInt32,
+            "any" => ArgType::IntOrFloat,
             _ => ArgType::Int,
         }
     }

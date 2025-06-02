@@ -1,6 +1,6 @@
 use super::Backend;
-use crate::compiler::Instruction;
 use crate::argument::OpcodeArgument;
+use crate::compiler::Instruction;
 use crate::parser::ArgType;
 use anyhow::{Ok, Result};
 
@@ -96,6 +96,9 @@ impl SannyTextBackend {
 }
 
 impl Backend for SannyTextBackend {
+    fn get_definitions(&self) -> String {
+        self.definitions.clone()
+    }
     fn process(&mut self, insts: Vec<crate::compiler::Instruction>) -> Result<()> {
         let library = somersault_sbl::parse_from(&self.definitions)?;
 

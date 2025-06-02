@@ -7,4 +7,5 @@ members = [
     "somersault-vm",
     "somersault-wasm",
     "somersault-sbl",
+    "somersault-dll",
 ]

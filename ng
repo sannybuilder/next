@@ -1,0 +1,3 @@
+cd somersault-web
+npm i
+npm start

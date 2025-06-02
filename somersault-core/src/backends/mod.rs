@@ -6,6 +6,7 @@ mod sa_cs;
 
 pub trait Backend {
     fn process(&mut self, insts: Vec<compiler::Instruction>) -> Result<()>;
+    fn get_definitions(&self) -> String;
 }
 
 pub use sanny_text::SannyTextBackend;

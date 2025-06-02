@@ -1,6 +1,6 @@
 [package]
 name = "somersault-core"
-version = "0.2.150"
+version = "0.2.254"
 edition = "2021"
 
 [dependencies]

@@ -81,10 +81,6 @@ pub struct Library {
     pub classes: Vec<ClassMeta>,
 }
 
-pub fn parse() -> serde_json::Result<Library> {
-    parse_from(std::include_str!("../../data/sa.json"))
-}
-
 pub fn parse_from(content: &str) -> serde_json::Result<Library> {
     serde_json::from_str::<Library>(content)
 }

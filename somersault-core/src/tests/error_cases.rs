@@ -193,8 +193,8 @@ mod suite {
         );
 
         assert_eq!(
-            process_error("export function foo\nint a[31]\nint z\nend"),
-            "Run out of local variables at line 3"
+            process_error("export function foo\nint a[16383]\nint z\nend"),
+            "Run out of memory. Number of allocated variables exceeds 16383 at line 3"
         );
     }
 
